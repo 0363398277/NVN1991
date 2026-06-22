@@ -1276,13 +1276,15 @@ if (q.audio) {
     // QUESTION TYPE (ONLY 2)
     // =========================
 
+const qName = q.name || q.id;
+
 if (q.type === "radio") {
 
   q.answers.forEach(a => {
 html += `
 <label class="answer-item">
   <input type="radio"
-         name="${q.name}"
+         name="${qName}"
          value="${a.value}">
   <span>${a.text}</span>
 </label>
@@ -1297,14 +1299,13 @@ html += `
 <label class="answer-item">
     <input
         type="checkbox"
-        name="${q.name}"
+        name="${qName}"
         value="${a.value}">
     <span>${a.text}</span>
 </label>
 `;
   });
-
-} 
+}
 else {
   html += `
     <input id="${q.id}" placeholder="Nhập đáp án">
@@ -1374,14 +1375,14 @@ current.forEach((q,i)=>{
 
 if (q.type === "radio") {
 
-  ok = (getRadio(q.name) === q.correct);
+  ok = (getRadio(q.name || q.id) === q.correct);
 
 } 
 else if (q.type === "checkbox") {
 
-  const selected = Array.from(
-    document.querySelectorAll(`input[name="${q.name}"]:checked`)
-  ).map(el => el.value);
+const selected = Array.from(
+  document.querySelectorAll(`input[name="${q.name || q.id}"]:checked`)
+).map(el => el.value);
 
   const correct = q.correct || [];
 
