@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+<title>Quẻ Xăm → HTML</title>
+
+<style>
+body{
+    font-family:Arial,sans-serif;
+    background:#f5f5f5;
+    padding:20px;
+}
+
+.container{
+    max-width:1200px;
+    margin:auto;
+}
+
+#input{
+    width:100%;
+    height:300px;          /* chiều cao cố định */
+    background:#fff;
+    border:1px solid #ccc;
+    padding:10px;
+    overflow-y:auto;       /* hiện thanh cuộn dọc */
+    overflow-x:hidden;
+    margin-bottom:10px;
+    white-space:pre-wrap;
+    box-sizing:border-box;
+}
+
+button{
+    padding:8px 15px;
+    margin-right:10px;
+    cursor:pointer;
+}
+
+#preview{
+    margin-top:20px;
+    background:#fff;
+    border:1px solid #ccc;
+    padding:20px;
+    min-height:300px;
+}
+</style>
+
+</head>
+<body>
+
+<div class="container">
+
+<h2>Quẻ Xăm → HTML</h2>
+
+<input
+    type="file"
+    id="wordFile"
+    accept=".docx"
+    style="display:none"
+    onchange="loadWordFile(event)"
+>
+
+<button onclick="document.getElementById('wordFile').click()">
+    Load Word
+</button>
+
+<div id="input"
+contenteditable="true">
+
+</div>
+
+<br>
+
+
+<button onclick="convert()">
+Chuyển đổi
+</button>
+
+<button onclick="copyHtml()">
+Copy HTML
+</button>
+
+<div id="preview"></div>
+
+</div>
+
+<script>
+
+async function loadWordFile(event){
+
+    const file = event.target.files[0];
+    if(!file) return;
+
+    try{
+
+        const arrayBuffer = await file.arrayBuffer();
+
+        const result = await mammoth.convertToHtml({
+            arrayBuffer
+        });
+
+        const temp = document.createElement('div');
+        temp.innerHTML = result.value;
+
+        const rows = temp.querySelectorAll('tr');
+
+        let html = '';
+
+        let seen = new Set();
+
+        rows.forEach(row => {
+
+            const cells = row.querySelectorAll('td');
+
+            if(!cells.length) return;
+
+            let rowText = '';
+
+            cells.forEach(cell => {
+
+                let text = cell.innerText
+                    .replace(/\u00A0/g,' ')   // fix space Word
+                    .replace(/\s+/g,' ')      // gộp space
+                    .trim();
+
+                if(text){
+                    rowText += text + '|';
+                }
+            });
+
+            // chuẩn hoá mạnh để chống trùng 100%
+            rowText = rowText
+                .replace(/\s*\|\s*/g,'|')
+                .replace(/\|+/g,'|')
+                .trim();
+
+            if(!rowText) return;
+
+            // bỏ bản trùng (fix lỗi 2 lần)
+            if(seen.has(rowText)) return;
+
+            seen.add(rowText);
+
+            // lấy FULL 2 cột (không mất "Dịch")
+            html += row.innerHTML + '<br>';
+
+        });
+
+        document.getElementById('input')
+            .innerHTML = html;
+
+    }catch(err){
+        console.error(err);
+        alert('Không đọc được file Word');
+    }
+}
+
+function removeDuplicatesFinal(){
+
+    const input = document.getElementById('input');
+
+    const html = input.innerHTML;
+
+    // tách theo block xuống dòng
+    let blocks = html
+        .split('<br>')
+        .map(x => x.trim())
+        .filter(x => x);
+
+    const seen = new Set();
+    const result = [];
+
+    blocks.forEach(block => {
+
+        // chuẩn hoá mạnh để so sánh
+        const key = block
+            .replace(/<[^>]*>/g,'')   // bỏ tag HTML
+            .replace(/\s+/g,' ')
+            .trim();
+
+        if(!key) return;
+
+        if(seen.has(key)) return;
+
+        seen.add(key);
+        result.push(block);
+
+    });
+
+    input.innerHTML = result.join('<br>');
+}
+
+
+let generatedHTML='';
+
+function toPlainText(){
+
+    const div =
+        document.getElementById('input');
+
+    const text =
+        div.innerText;
+
+    div.innerText = text;
+}
+
+function cleanLines(text){
+
+    return text
+        .split(/\r?\n/)
+        .map(x=>x.trim())
+        .filter(x=>x);
+}
+
+function convert(){
+toPlainText();
+removeDuplicatesFinal();
+
+    const text =
+        document.getElementById('input').innerText;
+
+    generatedHTML =
+        convertXam(text);
+
+    document.getElementById('preview')
+        .innerHTML = generatedHTML;
+}
+
+function convertXam(text){
+
+    const xamText =
+        getSection(
+            text,
+            'XĂM CHỮ',
+            'DỊCH NGHĨA'
+        );
+
+    const nghiaText =
+        getSection(
+            text,
+            'DỊCH NGHĨA',
+            'Giải:'
+        );
+
+    const giaiText =
+        getSection(
+            text,
+            'Giải:',
+            'Dịch:'
+        );
+
+    const dichText =
+        getSection(
+            text,
+            'Dịch:',
+            'Lời bàn:'
+        );
+
+    const loiBan =
+        getAfter(
+            text,
+            'Lời bàn:'
+        );
+
+    const xam =
+        cleanLines(xamText);
+
+    const nghia =
+        cleanLines(nghiaText);
+
+    const giai =
+        cleanLines(giaiText);
+
+    const dich =
+        cleanLines(dichText);
+
+    return buildHTML(
+        xam,
+        nghia,
+        giai,
+        dich,
+        loiBan.trim()
+    );
+}
+
+function getSection(text,start,end){
+
+    const s = text.indexOf(start);
+
+    if(s===-1) return '';
+
+    const e =
+        text.indexOf(
+            end,
+            s + start.length
+        );
+
+    if(e===-1) return '';
+
+    return text
+        .substring(
+            s + start.length,
+            e
+        )
+        .trim();
+}
+
+function getAfter(text,start){
+
+    const s = text.indexOf(start);
+
+    if(s===-1) return '';
+
+    return text
+        .substring(
+            s + start.length
+        )
+        .trim();
+}
+
+function buildHTML(
+    xam,
+    nghia,
+    giai,
+    dich,
+    loiBan
+){
+
+let html='';
+
+html += '<div style="text-align:center;"><b>XĂM CHỮ</b></div>';
+
+xam.forEach(line=>{
+    html += '<div style="text-align:center;">'+line+'</div>';
+});
+
+html += '<div style="text-align:center;"><br></div>';
+
+html += '<div style="text-align:center;"><b>DỊCH NGHĨA</b></div>';
+
+nghia.forEach(line=>{
+    html += '<div style="text-align:center;">'+line+'</div>';
+});
+
+html += '<hr style="width:100%;margin:10px 0;border:none;border-top:2px solid #000;">';
+
+html += '<table style="margin:auto;border-collapse:collapse;">';
+html += '<tr>';
+
+html += '<td style="width:250px;vertical-align:top;padding-right:15px;text-align:center;">';;
+html += '<b>Giải:</b><br>';
+
+giai.forEach(line=>{
+    html += line + '<br>';
+});
+
+html += '</td>';
+
+html += '<td style="border-left:2px solid #000;"></td>';
+
+html += '<td style="width:250px;vertical-align:top;padding-left:15px;text-align:center;">';
+html += '<b>Dịch:</b><br>';
+
+dich.forEach(line=>{
+    html += line + '<br>';
+});
+
+html += '</td>';
+
+html += '</tr>';
+html += '</table>';
+
+html += '<br>';
+
+html += '<b>Lời bàn:</b><br>';
+
+html += loiBan;
+
+return html;
+}
+
+function copyHtml(){
+
+    if(!generatedHTML){
+        alert('Chưa có HTML để copy');
+        return;
+    }
+
+    navigator.clipboard.writeText(
+        generatedHTML
+    );
+
+    alert('Đã copy HTML');
+}
+
+</script>
+
+</body>
+</html>
